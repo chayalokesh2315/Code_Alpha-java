@@ -25,7 +25,7 @@ class Booking {
     }
 }
 
-public class HotelReservationSystem {
+public class Hotel_reservation_system {
 
     static ArrayList<Room> rooms = new ArrayList<>();
     static ArrayList<Booking> bookings = new ArrayList<>();

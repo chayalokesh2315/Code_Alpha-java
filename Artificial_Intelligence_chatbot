@@ -1,0 +1,61 @@
+AIChatBot.java
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Scanner;
+
+public class AIChatBot {
+
+    private Map<String, String> knowledgeBase;
+
+    public AIChatBot() {
+        knowledgeBase = new HashMap<>();
+
+        // Predefined rule-based responses
+        knowledgeBase.put("hi", "Hello! How can I help you today?");
+        knowledgeBase.put("hello", "Hello! How can I assist you?");
+        knowledgeBase.put("hey", "Hey! What’s up?");
+        knowledgeBase.put("how are you", "I'm functioning perfectly, thank you!");
+        knowledgeBase.put("your name", "I am CodeAlpha AI Chatbot, your virtual assistant.");
+        knowledgeBase.put("what is java", "Java is a high-level, object-oriented programming language used for developing applications.");
+        knowledgeBase.put("oops", "OOP stands for Object-Oriented Programming. It organizes code using classes and objects.");
+        knowledgeBase.put("bye", "Goodbye! Have a wonderful day!");
+        knowledgeBase.put("thank you", "You're welcome! Happy to help!");
+        knowledgeBase.put("who created you", "I was created as part of the CodeAlpha Internship Java Project.");
+    }
+
+    public String getResponse(String userInput) {
+        userInput = userInput.toLowerCase().trim();
+
+        // Check dataset
+        for (String key : knowledgeBase.keySet()) {
+            if (userInput.contains(key)) {
+                return knowledgeBase.get(key);
+            }
+        }
+
+        // If no match found
+        return "I'm not sure I understand that. Could you rephrase?";
+    }
+
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        AIChatBot bot = new AIChatBot();
+
+        System.out.println("===== CodeAlpha AI Chatbot =====");
+        System.out.println("Type your message below. Type 'bye' to exit.\n");
+
+        while (true) {
+            System.out.print("You: ");
+            String userInput = scanner.nextLine();
+
+            String response = bot.getResponse(userInput);
+            System.out.println("Bot: " + response);
+
+            if (userInput.equalsIgnoreCase("bye")) {
+                break;
+            }
+        }
+
+        scanner.close();
+    }
+}

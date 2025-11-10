@@ -1,0 +1,395 @@
+import java.io.*;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.*;
+
+/**
+ * Single-file console-based Stock Trading Platform (Task 2)
+ *
+ * Save as: StockTrader.java
+ *
+ * Compile:
+ *   javac StockTrader.java
+ * Run:
+ *   java StockTrader
+ *
+ * The program persists portfolio and transactions into CSV files: portfolio.csv and transactions.csv
+ */
+public class StockTrader {
+    // Simple market simulator
+    static class Stock {
+        String symbol;
+        String name;
+        double price; // last traded price
+
+        Stock(String symbol, String name, double price) {
+            this.symbol = symbol;
+            this.name = name;
+            this.price = price;
+        }
+
+        @Override
+        public String toString() {
+            return String.format("%s (%s): %.2f", name, symbol, price);
+        }
+    }
+
+    static class Market {
+        private final Map<String, Stock> stocks = new HashMap<>();
+        private final Random rand = new Random();
+
+        Market() {
+            // seed some stocks
+            addStock(new Stock("AAPL", "Apple Inc.", 170.00));
+            addStock(new Stock("GOOG", "Alphabet Inc.", 140.00));
+            addStock(new Stock("MSFT", "Microsoft Corp.", 340.00));
+            addStock(new Stock("TSLA", "Tesla Inc.", 210.00));
+            addStock(new Stock("AMZN", "Amazon.com, Inc.", 130.00));
+        }
+
+        void addStock(Stock s) {
+            stocks.put(s.symbol.toUpperCase(), s);
+        }
+
+        Stock getStock(String symbol) {
+            return stocks.get(symbol.toUpperCase());
+        }
+
+        Collection<Stock> getAllStocks() {
+            return stocks.values();
+        }
+
+        // Simulate price change
+        void simulateMarketTick() {
+            for (Stock s : stocks.values()) {
+                double changePct = (rand.nextDouble() - 0.5) * 0.04; // -2% to +2%
+                s.price = Math.max(0.01, s.price * (1 + changePct));
+            }
+        }
+    }
+
+    static class Holding {
+        String symbol;
+        int qty;
+        double avgPrice; // average buy price
+
+        Holding(String symbol, int qty, double avgPrice) {
+            this.symbol = symbol;
+            this.qty = qty;
+            this.avgPrice = avgPrice;
+        }
+    }
+
+    static class Transaction {
+        LocalDateTime time;
+        String symbol;
+        String type; // BUY or SELL
+        int qty;
+        double price; // execution price
+        double value; // qty * price
+
+        Transaction(LocalDateTime time, String symbol, String type, int qty, double price) {
+            this.time = time;
+            this.symbol = symbol;
+            this.type = type;
+            this.qty = qty;
+            this.price = price;
+            this.value = qty * price;
+        }
+
+        @Override
+        public String toString() {
+            DateTimeFormatter f = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+            return String.format("%s | %s %d %s @ %.2f = %.2f",
+                    time.format(f), type, qty, symbol, price, value);
+        }
+    }
+
+    static class Portfolio {
+        double cash;
+        Map<String, Holding> holdings = new HashMap<>();
+        List<Transaction> txns = new ArrayList<>();
+
+        Portfolio(double startingCash) {
+            this.cash = startingCash;
+        }
+
+        void buy(String symbol, int qty, double price) {
+            double cost = qty * price;
+            if (cost > cash + 1e-9) {
+                throw new IllegalArgumentException("Insufficient cash.");
+            }
+            Holding h = holdings.get(symbol);
+            if (h == null) {
+                holdings.put(symbol, new Holding(symbol, qty, price));
+            } else {
+                // update average price
+                double totalCost = h.avgPrice * h.qty + price * qty;
+                h.qty += qty;
+                h.avgPrice = totalCost / h.qty;
+            }
+            cash -= cost;
+            Transaction t = new Transaction(LocalDateTime.now(), symbol, "BUY", qty, price);
+            txns.add(t);
+        }
+
+        void sell(String symbol, int qty, double price) {
+            Holding h = holdings.get(symbol);
+            if (h == null || h.qty < qty) {
+                throw new IllegalArgumentException("Insufficient shares to sell.");
+            }
+            h.qty -= qty;
+            double proceeds = qty * price;
+            cash += proceeds;
+            if (h.qty == 0) {
+                holdings.remove(symbol);
+            }
+            Transaction t = new Transaction(LocalDateTime.now(), symbol, "SELL", qty, price);
+            txns.add(t);
+        }
+
+        double getPortfolioValue(Market market) {
+            double value = cash;
+            for (Holding h : holdings.values()) {
+                Stock s = market.getStock(h.symbol);
+                double marketPrice = (s != null) ? s.price : 0.0;
+                value += h.qty * marketPrice;
+            }
+            return value;
+        }
+
+        double getUnrealizedPnL(Market market) {
+            double pnl = 0.0;
+            for (Holding h : holdings.values()) {
+                Stock s = market.getStock(h.symbol);
+                if (s != null) {
+                    pnl += (s.price - h.avgPrice) * h.qty;
+                }
+            }
+            return pnl;
+        }
+
+        // Simple CSV persistence methods
+        void savePortfolio(String holdingsFile, String txnsFile) throws IOException {
+            // Write holdings
+            try (PrintWriter pw = new PrintWriter(new FileWriter(holdingsFile))) {
+                pw.println("symbol,qty,avgPrice,cash");
+                for (Holding h : holdings.values()) {
+                    pw.printf("%s,%d,%.6f,%.2f%n", h.symbol, h.qty, h.avgPrice, cash);
+                }
+                if (holdings.isEmpty()) {
+                    // write only cash line
+                    pw.printf(",0,0.0,%.2f%n", cash);
+                }
+            }
+            // Write transactions
+            try (PrintWriter pw = new PrintWriter(new FileWriter(txnsFile))) {
+                pw.println("time,type,symbol,qty,price,value");
+                DateTimeFormatter f = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                for (Transaction t : txns) {
+                    pw.printf("%s,%s,%s,%d,%.6f,%.6f%n",
+                            t.time.format(f), t.type, t.symbol, t.qty, t.price, t.value);
+                }
+            }
+        }
+
+        void loadPortfolio(String holdingsFile, String txnsFile) throws IOException {
+            File hf = new File(holdingsFile);
+            if (hf.exists()) {
+                try (BufferedReader br = new BufferedReader(new FileReader(hf))) {
+                    String header = br.readLine();
+                    String line;
+                    holdings.clear();
+                    while ((line = br.readLine()) != null) {
+                        if (line.trim().isEmpty()) continue;
+                        String[] parts = line.split(",");
+                        if (parts.length >= 4) {
+                            String symbol = parts[0].trim();
+                            int qty = Integer.parseInt(parts[1].trim());
+                            double avg = Double.parseDouble(parts[2].trim());
+                            double cashVal = Double.parseDouble(parts[3].trim());
+                            if (!symbol.isEmpty()) {
+                                holdings.put(symbol, new Holding(symbol, qty, avg));
+                            }
+                            // set cash from file (last read)
+                            this.cash = cashVal;
+                        }
+                    }
+                }
+            }
+            File tf = new File(txnsFile);
+            if (tf.exists()) {
+                try (BufferedReader br = new BufferedReader(new FileReader(tf))) {
+                    String header = br.readLine();
+                    String line;
+                    txns.clear();
+                    DateTimeFormatter f = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+                    while ((line = br.readLine()) != null) {
+                        if (line.trim().isEmpty()) continue;
+                        String[] parts = line.split(",");
+                        if (parts.length >= 6) {
+                            LocalDateTime time = LocalDateTime.parse(parts[0].trim(), f);
+                            String type = parts[1].trim();
+                            String symbol = parts[2].trim();
+                            int qty = Integer.parseInt(parts[3].trim());
+                            double price = Double.parseDouble(parts[4].trim());
+                            txns.add(new Transaction(time, symbol, type, qty, price));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // --- Main UI & entry point ---
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        Market market = new Market();
+        Portfolio portfolio = new Portfolio(10000.00); // starting cash
+        final String holdingsFile = "portfolio.csv";
+        final String txnsFile = "transactions.csv";
+
+        // Try to load persisted portfolio
+        try {
+            portfolio.loadPortfolio(holdingsFile, txnsFile);
+            System.out.println("Loaded existing portfolio and transactions if present.");
+        } catch (IOException e) {
+            System.out.println("No existing portfolio files found or error loading. Starting fresh.");
+        }
+
+        boolean running = true;
+        while (running) {
+            System.out.println("\n=== CodeAlpha: Stock Trading Platform (Console) ===");
+            System.out.println("1. Display Market Data");
+            System.out.println("2. Simulate Market Tick (change prices)");
+            System.out.println("3. View Portfolio Summary");
+            System.out.println("4. Buy Stock");
+            System.out.println("5. Sell Stock");
+            System.out.println("6. View Transactions");
+            System.out.println("7. Save Portfolio");
+            System.out.println("0. Exit");
+            System.out.print("Choose an option: ");
+            String choice = sc.nextLine().trim();
+
+            try {
+                switch (choice) {
+                    case "1":
+                        displayMarket(market);
+                        break;
+                    case "2":
+                        market.simulateMarketTick();
+                        System.out.println("Market tick simulated: prices updated.");
+                        break;
+                    case "3":
+                        displayPortfolio(portfolio, market);
+                        break;
+                    case "4":
+                        doBuy(sc, portfolio, market);
+                        break;
+                    case "5":
+                        doSell(sc, portfolio, market);
+                        break;
+                    case "6":
+                        displayTransactions(portfolio);
+                        break;
+                    case "7":
+                        portfolio.savePortfolio(holdingsFile, txnsFile);
+                        System.out.println("Portfolio & transactions saved.");
+                        break;
+                    case "0":
+                        // auto save on exit
+                        portfolio.savePortfolio(holdingsFile, txnsFile);
+                        System.out.println("Saved and exiting. Goodbye!");
+                        running = false;
+                        break;
+                    default:
+                        System.out.println("Invalid option. Try again.");
+                }
+            } catch (IllegalArgumentException iae) {
+                System.out.println("Error: " + iae.getMessage());
+            } catch (IOException ioe) {
+                System.out.println("I/O Error: " + ioe.getMessage());
+            } catch (Exception ex) {
+                System.out.println("Unexpected error: " + ex.getMessage());
+                ex.printStackTrace(System.out);
+            }
+        }
+
+        sc.close();
+    }
+
+    private static void displayMarket(Market market) {
+        System.out.println("\n--- Market Data ---");
+        for (Stock s : market.getAllStocks()) {
+            System.out.printf("%-6s | %-20s | Price: %.2f%n", s.symbol, s.name, s.price);
+        }
+    }
+
+    private static void displayPortfolio(Portfolio p, Market m) {
+        System.out.println("\n--- Portfolio Summary ---");
+        System.out.printf("Cash balance: %.2f%n", p.cash);
+        System.out.printf("Portfolio total value: %.2f%n", p.getPortfolioValue(m));
+        System.out.printf("Unrealized P&L: %.2f%n", p.getUnrealizedPnL(m));
+        System.out.println("\nHoldings:");
+        if (p.holdings.isEmpty()) {
+            System.out.println("  (none)");
+        } else {
+            System.out.printf("%-6s %-6s %-12s %-12s%n", "Symbol", "Qty", "Avg Price", "Market Value");
+            for (Holding h : p.holdings.values()) {
+                Stock s = m.getStock(h.symbol);
+                double marketPrice = (s != null) ? s.price : 0.0;
+                System.out.printf("%-6s %-6d %-12.2f %-12.2f%n",
+                        h.symbol, h.qty, h.avgPrice, h.qty * marketPrice);
+            }
+        }
+    }
+
+    private static void doBuy(Scanner sc, Portfolio p, Market m) {
+        System.out.print("Enter symbol to BUY: ");
+        String sym = sc.nextLine().trim().toUpperCase();
+        Stock s = m.getStock(sym);
+        if (s == null) {
+            System.out.println("Symbol not found in market.");
+            return;
+        }
+        System.out.println("Market price: " + s.price);
+        System.out.print("Enter quantity: ");
+        int qty = Integer.parseInt(sc.nextLine().trim());
+        if (qty <= 0) {
+            System.out.println("Quantity must be positive.");
+            return;
+        }
+        p.buy(sym, qty, s.price);
+        System.out.printf("Bought %d of %s @ %.2f. Cash now: %.2f%n", qty, sym, s.price, p.cash);
+    }
+
+    private static void doSell(Scanner sc, Portfolio p, Market m) {
+        System.out.print("Enter symbol to SELL: ");
+        String sym = sc.nextLine().trim().toUpperCase();
+        Stock s = m.getStock(sym);
+        if (s == null) {
+            System.out.println("Symbol not found in market.");
+            return;
+        }
+        System.out.println("Market price: " + s.price);
+        System.out.print("Enter quantity: ");
+        int qty = Integer.parseInt(sc.nextLine().trim());
+        if (qty <= 0) {
+            System.out.println("Quantity must be positive.");
+            return;
+        }
+        p.sell(sym, qty, s.price);
+        System.out.printf("Sold %d of %s @ %.2f. Cash now: %.2f%n", qty, sym, s.price, p.cash);
+    }
+
+    private static void displayTransactions(Portfolio p) {
+        System.out.println("\n--- Transactions ---");
+        if (p.txns.isEmpty()) {
+            System.out.println("  (none)");
+            return;
+        }
+        for (Transaction t : p.txns) {
+            System.out.println(t);
+        }
+    }
+}

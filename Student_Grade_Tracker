@@ -1,4 +1,4 @@
-public class Student {
+public class Stock_Trading_Platform {
     private String name;
     private double grade;
 

@@ -15,7 +15,7 @@ import java.util.*;
  *
  * The program persists portfolio and transactions into CSV files: portfolio.csv and transactions.csv
  */
-public class StockTrader {
+public class Stock_Trading_Platform {
     // Simple market simulator
     static class Stock {
         String symbol;
